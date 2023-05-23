@@ -1,98 +1,93 @@
-# SPDX-License-Identifier: MIT
-pragma experimental ABIEncoderV2
+# Setup private variables (only callable from within the contract)
 
 struct Voter:
-    valid: bool
+    hasVoted: bool
     candidate: address
 
 struct Candidate:
-    name: string[64]
-    exists: bool
+    name: String[64]
     votes: uint256
 
-struct CandidateOverview:
-    name: string[64]
-    id: address
-    votes: uint256
-
-votes_calculated: bool
-
-candidates_arr: public(CandidateOverview[1000])
-owner: address
-
-voters: HashMap(address, Voter)
-candidates: HashMap(address, Candidate)
+voters: HashMap[address, Voter]
+candidates: HashMap[address, Candidate]
 
 start_time: uint256
 end_time: uint256
 
-@public
-def __init__(
-    _start_time: uint256,
-    _end_time: uint256,
-    valid_voters: address[1000],
-    candidates_addr: address[1000],
-    candidates_name: string[1000]
-):
-    assert len(candidates_addr) == len(candidates_name), "candidates_addr and candidates_name have different sizes"
+# gov's address
+gov: address
 
-    for i in range(len(valid_voters)):
-        self.voters[valid_voters[i]].valid = True
+election_name: String[64]
+status: bool
 
-    for i in range(len(candidates_addr)):
-        self.candidates[candidates_addr[i]].name = candidates_name[i]
-        self.candidates[candidates_addr[i]].exists = True
-        self.candidates_arr[i] = CandidateOverview({
-            name: candidates_name[i],
-            id: candidates_addr[i],
-            votes: 0
-        })
+winner: address
+max_votes: uint256
+total_votes: uint256
 
-    self.owner = msg.sender
+# Setup global variables
+@external
+def __init__( _start_time: uint256, _end_time: uint256, gov: address, election_name: String[64] ):
     self.start_time = _start_time
     self.end_time = _end_time
+    self.gov = gov
+    self.election_name = election_name
+    self.status = True
+    self.winner = ZERO_ADDRESS
+    self.max_votes = 0
+    self.total_votes = 0
 
-@public
-@constant
-def hasVoted(voter: address) -> bool:
-    assert msg.sender == self.owner, "Only election owner can search for who has voted."
-    assert block.timestamp > self.end_time, "You can only see who hasn't voted after the election."
-
-    return self.voters[voter].candidate != ZERO_ADDRESS
-
-@public
-@constant
-def getCandidates() -> CandidateOverview[1000]:
-    return self.candidates_arr
-
-@public
-def castVote(candidate: address):
-    assert block.timestamp >= self.start_time and block.timestamp <= self.end_time, "Cannot cast vote at this time."
-    assert self.voters[msg.sender].candidate == ZERO_ADDRESS, "You already voted."
-    assert self.voters[msg.sender].valid, "You are not a valid voter."
-    assert self.candidates[candidate].exists, "This candidate does not exist in this election."
-
-    self.candidates[candidate].votes += 1
-    self.voters[msg.sender].candidate = candidate
-
-@public
-@constant
-def getVote() -> address:
-    return self.voters[msg.sender].candidate
-
-@public
-@constant
-def getCandidateVotes(candidate: address) -> uint256:
-    assert block.timestamp > self.end_time, "Cannot get votes before end of election."
+@external
+def get_candidate_votes(candidate: address) -> uint256:
     return self.candidates[candidate].votes
 
-@public
-def calculateCandidatesVotes():
-    assert block.timestamp > self.end_time, "Cannot get votes before end of election."
-    if self.votes_calculated:
-        return
+# @external
+# def get_num_of_candidates() -> uint256:
+#     return len(self.candidates)
 
-    for i in range(len(self.candidates_arr)):
-        self.candidates_arr[i].votes = self.candidates[self.candidates_arr[i].id].votes
+# @external
+# def get_num_of_voters() -> uint256:
+#     return len(self.voters)
 
-    self.votes_calculated = True
+@external
+def add_candidate(candidate: address, name: String[64]):
+    assert msg.sender == self.gov, "Only the election authority can add candidates"
+    assert self.status == True, "Election is not active"
+
+    self.candidates[candidate] = Candidate({
+        name: name,
+        votes: 0
+    })
+
+
+@external
+def vote(candidate: address):
+    assert self.status == True, "Election is not active"
+    assert self.start_time <= block.timestamp, "Election has not started yet"
+    assert self.end_time >= block.timestamp, "Election has ended"
+    assert self.voters[msg.sender].hasVoted == False, "You have already voted"
+
+    self.voters[msg.sender] = Voter({
+        hasVoted: True,
+        candidate: candidate
+    })
+
+    self.candidates[candidate].votes += 1
+    self.total_votes += 1
+
+@external
+def count_votes() -> address:
+    assert self.status == True, "Election is still active"
+    assert self.end_time <= block.timestamp, "Election has not ended yet"
+    assert self.start_time <= block.timestamp, "Election has not started yet"
+    assert self.gov == msg.sender, "Only the election authority can count votes"
+
+    self.status = False
+
+    self.max_votes = 0
+
+    for index in range(self.total_votes):
+        if self.candidates[index].votes > self.max_votes:
+            self.winner = index
+            self.max_votes = self.candidates[index].votes
+
+    return self.candidates[self.winner]
