@@ -7,6 +7,7 @@ struct Voter:
 struct Candidate:
     name: String[64]
     votes: uint256
+    isCandidate: bool
 
 voters: HashMap[address, Voter]
 candidates: HashMap[address, Candidate]
@@ -41,15 +42,17 @@ def add_candidate(candidate: address, name: String[64]):
     assert msg.sender == self.gov, "Only the election authority can add candidates"
     assert self.status == True, "Election is not active"
     assert self.deadline > block.timestamp, "Election has ended, you cant add a candidate"
+    assert self.candidates[candidate].isCandidate == False, "This user is already a candidate"
 
     self.candidates[candidate] = Candidate({
         name: name,
-        votes: 0
+        votes: 0,
+        isCandidate: True
     })
 
 @external
 def vote(candidate: address):
-    assert self.status == True, "Election is not active"
+    assert self.status == True, "Election has not started"
     assert self.deadline > block.timestamp, "Election has ended, this user is not able to vote anymore"
     assert self.voters[msg.sender].hasVoted == False, "You have already voted"
 
